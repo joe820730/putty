@@ -563,6 +563,7 @@ void save_open_settings(settings_w *sesskey, Conf *conf)
     write_setting_i(sesskey, "LogFileClash", conf_get_int(conf, CONF_logxfovr));
     write_setting_b(sesskey, "LogFlush", conf_get_bool(conf, CONF_logflush));
     write_setting_b(sesskey, "LogHeader", conf_get_bool(conf, CONF_logheader));
+    write_setting_b(sesskey, "LogTimestamp", conf_get_bool(conf, CONF_logtimestamp));
     write_setting_b(sesskey, "SSHLogOmitPasswords", conf_get_bool(conf, CONF_logomitpass));
     write_setting_b(sesskey, "SSHLogOmitData", conf_get_bool(conf, CONF_logomitdata));
     p = "raw";
@@ -847,6 +848,7 @@ void load_open_settings(settings_r *sesskey, Conf *conf)
     gppi(sesskey, "LogFileClash", LGXF_ASK, conf, CONF_logxfovr);
     gppb(sesskey, "LogFlush", true, conf, CONF_logflush);
     gppb(sesskey, "LogHeader", true, conf, CONF_logheader);
+    gppb(sesskey, "LogTimestamp", false, conf, CONF_logtimestamp);
     gppb(sesskey, "SSHLogOmitPasswords", true, conf, CONF_logomitpass);
     gppb(sesskey, "SSHLogOmitData", false, conf, CONF_logomitdata);
 
