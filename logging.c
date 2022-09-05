@@ -10,6 +10,7 @@
 #include <assert.h>
 
 #include "putty.h"
+#define TIMESTAMP_STR_LEN 24
 
 /* log session to file stuff ... */
 struct LogContext {
@@ -24,6 +25,43 @@ struct LogContext {
 
 static Filename *xlatlognam(Filename *s, char *hostname, int port,
                             struct tm *tm);
+
+static void timestampwrite(LogContext *ctx, ptrlen data)
+{
+    static enum {
+        NONE,
+        PENDING_EOL,
+        WRITE_TIMESTAMP
+    } state = NONE;
+    struct tm tm;
+    char buf[TIMESTAMP_STR_LEN] = {0};
+    if (((char*)data.ptr)[0] == '\r') {
+        state = PENDING_EOL;
+        return;
+    }
+    if (state == PENDING_EOL) {
+        state = WRITE_TIMESTAMP;
+        if (((char*)data.ptr)[0] == '\n') {
+            return;
+        }
+    }
+    if (state == WRITE_TIMESTAMP) {
+        state = NONE;
+        if (conf_get_bool(ctx->conf, CONF_logtimestamp)) {
+            /* Write timestamp into log file. */
+            tm = ltime();
+            strftime(buf, TIMESTAMP_STR_LEN, "[%Y.%m.%d %H:%M:%S] ", &tm);
+            if (!fwrite(buf, 1, strlen(buf), ctx->lgfp)) {
+                logfclose(ctx);
+                ctx->state = L_ERROR;
+                lp_eventlog(ctx->lp, "Disabled writing session log "
+                        "due to error while writing");
+                return;
+            }
+        }
+        return;
+    }
+}
 
 /*
  * Internal wrapper function which must be called for _all_ output
@@ -45,6 +83,7 @@ static void logwrite(LogContext *ctx, ptrlen data)
         bufchain_add(&ctx->queue, data.ptr, data.len);
     } else if (ctx->state == L_OPEN) {
         assert(ctx->lgfp);
+        timestampwrite(ctx, data);
         if (fwrite(data.ptr, 1, data.len, ctx->lgfp) < data.len) {
             logfclose(ctx);
             ctx->state = L_ERROR;

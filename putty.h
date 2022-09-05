@@ -1896,6 +1896,7 @@ NORETURN void cleanup_exit(int);
     X(INT, NONE, logxfovr) /* LGXF_OVR, LGXF_APN, LGXF_ASK */ \
     X(BOOL, NONE, logflush) \
     X(BOOL, NONE, logheader) \
+    X(BOOL, NONE, logtimestamp) \
     X(BOOL, NONE, logomitpass) \
     X(BOOL, NONE, logomitdata) \
     X(BOOL, NONE, hide_mouseptr) \
