@@ -28,6 +28,9 @@ static Filename *xlatlognam(Filename *s, char *hostname, int port,
 
 static void timestampwrite(LogContext *ctx, ptrlen data)
 {
+    if (ctx->logtype != LGTYP_ASCII) {
+        return;
+    }
     static enum {
         NONE,
         PENDING_EOL,
