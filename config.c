@@ -181,6 +181,121 @@ void conf_fontsel_handler(dlgcontrol *ctrl, dlgparam *dlg,
     }
 }
 
+///////////////////////////////////
+#if defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
+
+#include <windows.h>
+#pragma warning(push)
+#pragma warning(disable:4201)
+#include <SetupAPI.h>
+#include <devguid.h>
+#pragma warning(pop)
+
+#define COMM_STR_LEN 256
+#define MAX_COM 32
+struct COM_LIST{
+    int count;
+    int com_id[MAX_COM];
+    char com_name[MAX_COM][256];
+};
+
+int get_comm_list(struct COM_LIST *com_list)
+{
+    int it;
+    unsigned int com_index = 0;
+    HDEVINFO hDevInfo = INVALID_HANDLE_VALUE;
+    SP_DEVINFO_DATA spdata = {0};
+
+    // Search serial device via SetupApi
+    com_list->count = 0;
+    hDevInfo = SetupDiGetClassDevs(&GUID_DEVCLASS_PORTS, 0, 0, DIGCF_PRESENT);
+    if (hDevInfo == INVALID_HANDLE_VALUE) {
+        com_list->count = 0;
+        return 0;
+    }
+    spdata.cbSize = sizeof(spdata);
+    for (it = 0; SetupDiEnumDeviceInfo(hDevInfo, it, &spdata); it++){
+        if (SetupDiGetDeviceRegistryProperty(hDevInfo, &spdata, SPDRP_FRIENDLYNAME,
+            NULL, (PBYTE)&com_list->com_name[com_index][0], sizeof(com_list->com_name[0]), NULL))
+        {
+            char* pch = NULL;
+            int tmp_id = 0;
+            pch = strstr(&com_list->com_name[com_index][0], "LPT");
+            if (pch)
+                continue;
+            pch = strstr(&com_list->com_name[com_index][0], "COM");
+            if (!pch)
+                continue;
+            tmp_id = atoi(pch + 3);
+            *(pch - 1) = 0;
+            com_list->com_id[com_index] = tmp_id;
+            com_index++;
+        }
+    }
+    SetupDiDestroyDeviceInfoList(hDevInfo);
+    com_list->count = com_index;
+
+    return com_list->count;
+}
+#endif
+
+void ser_com_list_handler(dlgcontrol *ctrl, void *dlg, void *data)
+{
+    Conf *conf = (Conf *)data;
+#if defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
+    int comm_count = 0;
+    char *com_port = conf_get_str(conf, CONF_serline);
+    char *com_port_with_name = NULL;
+    bool cur_comm_exists = false;
+
+    if (ctrl->editbox.has_list) {
+        int i;
+        char cur_com_port[COMM_STR_LEN] = {0};
+        char cur_com_with_name[COMM_STR_LEN] = {0};
+        struct COM_LIST com_list;
+
+        dlg_update_start(ctrl, dlg);
+        /*
+        * Some backends may wish to disable the drop-down list on
+        * this edit box. Be prepared for this.
+        */
+        dlg_listbox_clear(ctrl, dlg);
+        comm_count = get_comm_list(&com_list);
+        for (i = 0; i < comm_count; i++) {
+            char tmp_com_port[COMM_STR_LEN] = {0};
+            char tmp_com_with_name[COMM_STR_LEN] = {0};
+            snprintf(tmp_com_with_name, COMM_STR_LEN, "COM%d (%s)", com_list.com_id[i], com_list.com_name[i]);
+            snprintf(tmp_com_port, COMM_STR_LEN, "COM%d", com_list.com_id[i]);
+            dlg_listbox_add(ctrl, dlg, tmp_com_with_name);
+            // If current comport exists, select the first comport which we found.
+            if (!strncmp(tmp_com_port, com_port, strlen(com_port))) {
+                cur_comm_exists = true;
+                memcpy(cur_com_with_name, tmp_com_with_name, COMM_STR_LEN);
+                memcpy(cur_com_port, tmp_com_port, COMM_STR_LEN);
+            }
+        }
+        dlg_update_done(ctrl, dlg);
+
+        // If current comport not exist, select the first comport which we found.
+        if (!cur_comm_exists) {
+            snprintf(cur_com_with_name, COMM_STR_LEN, "COM%d (%s)", com_list.com_id[0], com_list.com_name[0]);
+            snprintf(cur_com_port, COMM_STR_LEN, "COM%d", com_list.com_id[0]);
+        }
+
+        if (comm_count > 0) {
+            dlg_editbox_set(ctrl, dlg, cur_com_with_name);
+            conf_set_str(conf, CONF_serline, cur_com_port);
+        }
+    }
+    if (comm_count == 0 || !ctrl->editbox.has_list) {
+        dlg_editbox_set(ctrl, dlg, com_port);
+    }
+#else
+    dlg_editbox_set(ctrl, dlg, conf_get_str(conf, CONF_serline));
+#endif
+}
+///////////////////////////////////
+
 static void config_host_handler(dlgcontrol *ctrl, dlgparam *dlg,
                                 void *data, int event)
 {
@@ -198,17 +313,31 @@ static void config_host_handler(dlgcontrol *ctrl, dlgparam *dlg,
              * since that's the shortcut for the host name control.
              */
             dlg_label_change(ctrl, dlg, "Serial line");
-            dlg_editbox_set(ctrl, dlg, conf_get_str(conf, CONF_serline));
+            ser_com_list_handler(ctrl, dlg, data);
         } else {
             dlg_label_change(ctrl, dlg, HOST_BOX_TITLE);
             dlg_editbox_set(ctrl, dlg, conf_get_str(conf, CONF_host));
         }
     } else if (event == EVENT_VALCHANGE) {
         char *s = dlg_editbox_get(ctrl, dlg);
-        if (conf_get_int(conf, CONF_protocol) == PROT_SERIAL)
-            conf_set_str(conf, CONF_serline, s);
-        else
+        if (conf_get_int(conf, CONF_protocol) == PROT_SERIAL) {
+#if defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
+            char comm_name[COMM_STR_LEN] = {0};
+            memset(comm_name, 0, sizeof(comm_name));
+            if (s) {
+                for (int ii = 0; s[ii] != '\0'; ii++) {
+                    if (s[ii] == ' ') {
+                        memcpy(comm_name, s, ii - 1);;
+                        break;
+                    }
+                }
+            }
+            conf_set_str(conf, CONF_serline, comm_name);
+#endif
+            dlg_editbox_set(ctrl, dlg, s);
+        } else {
             conf_set_str(conf, CONF_host, s);
+        }
         sfree(s);
     }
 }
@@ -1828,9 +1957,16 @@ void setup_config_box(struct controlbox *b, bool midsession,
         s = ctrl_getset(b, "Session", "hostport",
                         "Specify the destination you want to connect to");
         ctrl_columns(s, 2, 75, 25);
+        
+#if defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
+        c = ctrl_combobox(s, HOST_BOX_TITLE, 'n', 100,
+                         HELPCTX(session_hostname),
+                         config_host_handler, I(0), I(0));
+#else
         c = ctrl_editbox(s, HOST_BOX_TITLE, 'n', 100,
                          HELPCTX(session_hostname),
                          config_host_handler, I(0), I(0));
+#endif
         c->column = 0;
         hp->host = c;
         c = ctrl_editbox(s, PORT_BOX_TITLE, 'p', 100,
